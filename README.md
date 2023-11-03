@@ -7,7 +7,22 @@ Java library to parse oracle database dmp files created with exp command
     try {	    
 	var f = new File("example.dmp");
 	DMPParser parser = new DMPParser();
-	List<DMPTable> ret = parser.parseFile(new FileInputStream(f));
+	
+	try (var fin = new FileInputStream(f)) {
+	    parser.parseFileStream(fin).forEach(System.out::println);
+	}
+
+	System.out.println("----------------------------------------------------------");
+
+	try (var fin = new FileInputStream(f)) {
+	    parser.parseFileStream(fin, List.of("TABLE1", "TABLE2")).forEach(System.out::println);
+	}
+
+	System.out.println("----------------------------------------------------------");
+
+	try (var fin = new FileInputStream(f)) {
+	    parser.parseFileStream(fin, x -> x.toLowerCase().startsWith("ta")).forEach(System.out::println);
+	}
     } catch (Exception ex) {
 	ex.printStackTrace();
     }
