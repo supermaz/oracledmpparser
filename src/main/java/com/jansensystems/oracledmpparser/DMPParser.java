@@ -9,6 +9,7 @@ import java.util.LinkedList;
 import java.util.Queue;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  *
@@ -19,6 +20,56 @@ public class DMPParser {
     private String currentTable = null;
     private DMPTable currentTableObj = null;
     private List<DMPTable> tables = new ArrayList<>();
+    private boolean finished = false;
+    private boolean debugToStdout = false;
+    
+    public Stream<DMPTable> parseFileStream(InputStream in) throws IOException {
+	Stream<DMPTable> iterated = Stream.iterate(null, s -> !finished, s -> {
+	    // return null;
+	    tables.clear();
+	    ByteArrayOutputStream temp = new ByteArrayOutputStream();
+	    try {
+		int b = 0;
+		Queue<Integer> lastBytes = new LinkedList<>();
+		while ((b = in.read()) >= 0) {
+		    if (b == 0x0a) {
+			if (afterInsertStatement) {
+			    if (lastBytesEndOfInsertData(lastBytes)) {
+				temp.write(b);
+				temp.close();
+				parseLine(temp.toByteArray());
+				return tables.get(0);
+				// temp = new ByteArrayOutputStream();
+			    } else {
+				temp.write(b);
+				// nothing else to do, just add more bytes
+			    }
+			} else {
+			    // newline
+			    temp.close();
+			    parseLine(temp.toByteArray());
+			    temp = new ByteArrayOutputStream();
+			}
+		    } else {
+			temp.write(b);
+			lastBytes.add(b);
+			if (lastBytes.size() > 4) lastBytes.poll();
+		    }
+		}
+		parseLine(temp.toByteArray());
+		finished = true;
+	    } catch (Exception ex) {
+		// TODO
+	    } finally {
+		try {
+		    temp.close();
+		} catch (Exception ex) {}
+	    }
+	    return null;
+	});
+	
+	return iterated.skip(1);
+    }
     
     public List<DMPTable> parseFile(InputStream in) throws IOException {
 	ByteArrayOutputStream temp = new ByteArrayOutputStream();
@@ -142,13 +193,13 @@ public class DMPParser {
 	}
 	for (com.jansensystems.oracledmpparser.DMPRow r : rows) {
 	    for (com.jansensystems.oracledmpparser.DMPItem l : r.items) {
-		System.out.print(String.format("%02x", l.noOfbytes) + ", " + l.bytes.stream().map(x -> String.format("%02x", x)).collect(Collectors.joining(", ")));
+		if (debugToStdout) System.out.print(String.format("%02x", l.noOfbytes) + ", " + l.bytes.stream().map(x -> String.format("%02x", x)).collect(Collectors.joining(", ")));
 		if (l.itemType == DMPItemType.NULL) {
-		    System.out.print(" -> NULL");
+		    if (debugToStdout) System.out.print(" -> NULL");
 		} else if (l.bytes.size() > 1 && ((l.bytes.get(0) & 0xff) >= 0xc0 && (l.bytes.get(0) & 0xff) <= 0xcf)) {
 		    // number
 		    l.itemType = DMPItemType.NUMBER;
-		    System.out.print(" -> ");
+		    if (debugToStdout) System.out.print(" -> ");
 		    int intPart = (l.bytes.get(0) & 0xff) - 0xc0;
 		    var sl = l.bytes.subList(1, l.bytes.size());
 		    String v = "";
@@ -171,28 +222,28 @@ public class DMPParser {
 		    } catch (Exception ex) {
 			ex.printStackTrace();
 		    }
-		    System.out.print(v);
+		    if (debugToStdout) System.out.print(v);
 		} else if (l.bytes.size() > 1 && ((l.bytes.get(0) & 0xff) == 0x80)) {
-		    System.out.print(" -> 0");
+		    if (debugToStdout) System.out.print(" -> 0");
 		    l.itemType = DMPItemType.NUMBER;
 		    l.numberValue = 0d;
 		} else {
 		    l.itemType = DMPItemType.STRING;
 		    // string?
 		    if (l.bytes.size() > 1) {
-			System.out.print(" -> ");
+			if (debugToStdout) System.out.print(" -> ");
 			var sl = l.bytes.subList(1, l.bytes.size());
 			var b1 = new byte[sl.size()];
 			for (int i = 0;i<sl.size();i++) b1[i] = sl.get(i);
 			String v = new String(b1);
-			System.out.print(v);
+			if (debugToStdout) System.out.print(v);
 			l.stringValue = v;
 		    }
 		}
-		System.out.println();
+		if (debugToStdout) System.out.println();
 	    }
 	}
-	System.out.println();
+	if (debugToStdout) System.out.println();
 	return rows;
     }
 }

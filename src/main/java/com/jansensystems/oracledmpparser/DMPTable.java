@@ -10,4 +10,10 @@ public class DMPTable {
     public String tableName = null;
     public String createTableSQL = null;
     public List<DMPRow> dataRows = null;
+
+    @Override
+    public String toString() {
+	return "DMPTable{" + "tableName=" + tableName + ", dataRows=" + dataRows.size() + '}';
+    }
+    
 }
