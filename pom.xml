@@ -97,6 +97,13 @@
           <autoReleaseAfterClose>true</autoReleaseAfterClose>
         </configuration>
       </plugin>
+      <plugin>
+      <groupId>com.github.ferstl</groupId>
+      <artifactId>depgraph-maven-plugin</artifactId>
+      <version>4.0.2</version>
+      <configuration>
+      </configuration>
+    </plugin>
     </plugins>
   </build>
 
