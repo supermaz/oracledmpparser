@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.Queue;
 import java.util.List;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -23,7 +24,25 @@ public class DMPParser {
     private boolean finished = false;
     private boolean debugToStdout = false;
     
+    public void reset() {
+	afterInsertStatement = false;
+	finished = false;
+	tables.clear();
+	currentTable = null;
+	currentTableObj = null;
+    }
+    
     public Stream<DMPTable> parseFileStream(InputStream in) throws IOException {
+	return parseFileStream(in, x -> true);
+    }
+    
+    public Stream<DMPTable> parseFileStream(InputStream in, List<String> tableNames) throws IOException {
+	List<String> tableNamesLower = tableNames.stream().map(x -> x.toLowerCase()).toList();
+	return parseFileStream(in, x -> tableNamesLower.contains(x.toLowerCase()));
+    }
+    
+    public Stream<DMPTable> parseFileStream(InputStream in, Function<String, Boolean> filter) throws IOException {
+	reset();
 	Stream<DMPTable> iterated = Stream.iterate(null, s -> !finished, s -> {
 	    // return null;
 	    tables.clear();
@@ -37,7 +56,7 @@ public class DMPParser {
 			    if (lastBytesEndOfInsertData(lastBytes)) {
 				temp.write(b);
 				temp.close();
-				parseLine(temp.toByteArray());
+				parseLine(temp.toByteArray(), filter);
 				return tables.get(0);
 				// temp = new ByteArrayOutputStream();
 			    } else {
@@ -47,7 +66,7 @@ public class DMPParser {
 			} else {
 			    // newline
 			    temp.close();
-			    parseLine(temp.toByteArray());
+			    parseLine(temp.toByteArray(), filter);
 			    temp = new ByteArrayOutputStream();
 			}
 		    } else {
@@ -56,7 +75,7 @@ public class DMPParser {
 			if (lastBytes.size() > 4) lastBytes.poll();
 		    }
 		}
-		parseLine(temp.toByteArray());
+		parseLine(temp.toByteArray(), filter);
 		finished = true;
 	    } catch (Exception ex) {
 		// TODO
@@ -71,7 +90,17 @@ public class DMPParser {
 	return iterated.skip(1);
     }
     
+    public List<DMPTable> parseFile(InputStream in, List<String> tableNames) throws IOException {
+	List<String> tableNamesLower = tableNames.stream().map(x -> x.toLowerCase()).toList();
+	return parseFile(in, x -> tableNamesLower.contains(x.toLowerCase()));
+    }
+    
     public List<DMPTable> parseFile(InputStream in) throws IOException {
+	return parseFile(in, x -> true);
+    }
+    
+    public List<DMPTable> parseFile(InputStream in, Function<String, Boolean> filter) throws IOException {
+	reset();
 	ByteArrayOutputStream temp = new ByteArrayOutputStream();
 	try {
 	    int b = 0;
@@ -82,7 +111,7 @@ public class DMPParser {
 			if (lastBytesEndOfInsertData(lastBytes)) {
 			    temp.write(b);
 			    temp.close();
-			    parseLine(temp.toByteArray());
+			    parseLine(temp.toByteArray(), filter);
 			    temp = new ByteArrayOutputStream();
 			} else {
 			    temp.write(b);
@@ -91,7 +120,7 @@ public class DMPParser {
 		    } else {
 			// newline
 			temp.close();
-			parseLine(temp.toByteArray());
+			parseLine(temp.toByteArray(), filter);
 			temp = new ByteArrayOutputStream();
 		    }
 		} else {
@@ -100,7 +129,7 @@ public class DMPParser {
 		    if (lastBytes.size() > 4) lastBytes.poll();
 		}
 	    }
-	    parseLine(temp.toByteArray());
+	    parseLine(temp.toByteArray(), filter);
 	} finally {
 	    temp.close();
 	}
@@ -115,7 +144,7 @@ public class DMPParser {
 	return bytes[i] == 0 && bytes[i+1] == 0 && (bytes[i+2] & 0xff) == 0xff && (bytes[i+3] & 0xff) == 0xff;
     }
     
-    private void parseLine(byte[] bytes) {
+    private void parseLine(byte[] bytes, Function<String, Boolean> filter) {
 	// test what it is
 	if (afterInsertStatement) {
 	    // should be data here
@@ -126,12 +155,17 @@ public class DMPParser {
 	if (testString.startsWith("TABLE ")) {
 	    currentTable = testString.substring(7, testString.length()-1);
 	} else if (testString.startsWith("CREATE TABLE ")) {
-	    currentTableObj = new DMPTable();
-	    tables.add(currentTableObj);
-	    currentTableObj.tableName = currentTable;
-	    currentTableObj.createTableSQL = testString;
+	    if (filter.apply(currentTable)) {
+		currentTableObj = new DMPTable();
+		tables.add(currentTableObj);
+		currentTableObj.tableName = currentTable;
+		currentTableObj.createTableSQL = testString;
+	    } else {
+		currentTable = null;
+	    }
 	} else if (testString.startsWith("INSERT INTO ")) {
-	    afterInsertStatement = true;
+	    if (currentTable != null)
+		afterInsertStatement = true;
 	}
     }
     
