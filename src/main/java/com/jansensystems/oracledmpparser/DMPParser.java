@@ -100,40 +100,41 @@ public class DMPParser {
     }
     
     public List<DMPTable> parseFile(InputStream in, Function<String, Boolean> filter) throws IOException {
-	reset();
-	ByteArrayOutputStream temp = new ByteArrayOutputStream();
-	try {
-	    int b = 0;
-	    Queue<Integer> lastBytes = new LinkedList<>();
-	    while ((b = in.read()) >= 0) {
-		if (b == 0x0a) {
-		    if (afterInsertStatement) {
-			if (lastBytesEndOfInsertData(lastBytes)) {
-			    temp.write(b);
-			    temp.close();
-			    parseLine(temp.toByteArray(), filter);
-			    temp = new ByteArrayOutputStream();
-			} else {
-			    temp.write(b);
-			    // nothing else to do, just add more bytes
-			}
-		    } else {
-			// newline
-			temp.close();
-			parseLine(temp.toByteArray(), filter);
-			temp = new ByteArrayOutputStream();
-		    }
-		} else {
-		    temp.write(b);
-		    lastBytes.add(b);
-		    if (lastBytes.size() > 4) lastBytes.poll();
-		}
-	    }
-	    parseLine(temp.toByteArray(), filter);
-	} finally {
-	    temp.close();
-	}
-	return tables;
+//	reset();
+//	ByteArrayOutputStream temp = new ByteArrayOutputStream();
+//	try {
+//	    int b = 0;
+//	    Queue<Integer> lastBytes = new LinkedList<>();
+//	    while ((b = in.read()) >= 0) {
+//		if (b == 0x0a) {
+//		    if (afterInsertStatement) {
+//			if (lastBytesEndOfInsertData(lastBytes)) {
+//			    temp.write(b);
+//			    temp.close();
+//			    parseLine(temp.toByteArray(), filter);
+//			    temp = new ByteArrayOutputStream();
+//			} else {
+//			    temp.write(b);
+//			    // nothing else to do, just add more bytes
+//			}
+//		    } else {
+//			// newline
+//			temp.close();
+//			parseLine(temp.toByteArray(), filter);
+//			temp = new ByteArrayOutputStream();
+//		    }
+//		} else {
+//		    temp.write(b);
+//		    lastBytes.add(b);
+//		    if (lastBytes.size() > 4) lastBytes.poll();
+//		}
+//	    }
+//	    parseLine(temp.toByteArray(), filter);
+//	} finally {
+//	    temp.close();
+//	}
+//	return tables;
+	return parseFileStream(in, filter).toList();
     }
     
     private boolean lastBytesEndOfInsertData(Queue<Integer> lastBytes) {
