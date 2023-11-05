@@ -5,6 +5,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.Queue;
 import java.util.List;
@@ -185,30 +186,59 @@ public class DMPParser {
 	int takeByteCount = 0;
 	int nullCount = 0;
 	boolean hasStarted = false;
-	for (int i=0;i<bytes.length;i++) {
+	if (debugToStdout) {
+	    String bytes_hex =  byteArrayToString(bytes);
+	    System.out.println(bytes_hex);
+	}
+	if (bytes.length == 0) return rows;
+	int fieldCount = (bytes[0] & 0xff);
+	int skipBytes = fieldCount*4;
+	for (int i=bytes.length-1;i>0;i--) {
+	    if (i > 4 && bytes[i] == 0 && bytes[i-1] == 0 && bytes[i-2] == 0 && bytes[i-3] == 0) {
+		skipBytes = i-4;
+		break;
+	    }
+	}
+	if (debugToStdout) {
+	    System.out.println("Skipping " + skipBytes + " bytes");
+	}
+	
+	DMPItemType[] columnTypes = new DMPItemType[fieldCount];
+	int addSkip = 0;
+	for (int i=0;i<fieldCount;i++) {
+	    int fc = (bytes[i*4+2 + addSkip] & 0xff);
+	    columnTypes[i] = switch (fc) {
+		case 1 -> DMPItemType.STRING;
+		case 2 -> DMPItemType.NUMBER;
+		case 12 -> DMPItemType.DATE;
+		case 180 -> DMPItemType.TIMESTAMP;
+		case 113-> DMPItemType.BLOB;
+		default -> null;
+	    };
+	    if (columnTypes[i] != null) {
+		switch (columnTypes[i]) {
+		    case STRING -> addSkip+=4;
+		}
+	    }
+	}
+	
+	// skip field defs
+	for (int i=skipBytes;i<bytes.length;i++) {
 	    if (bytes[i] == 0) {
 		nullCount++;
 	    } else {
 		nullCount = 0;
 	    }
-	    if (nullCount == 4) { hasStarted = true; }
+	    if (nullCount == 4) { 
+		if (i > 0 && bytes.length > i+4 && bytes[i] == 0 && bytes[i+1] == 0 && (bytes[i+2] & 0xff) == 0xff && (bytes[i+3] & 0xff) == 0xff && (bytes[i+4] & 0xff) == 0x0a) {
+		    // zero rows
+		    break;
+		} else {
+		    hasStarted = true;
+		}
+	    }
 	    else if (hasStarted) {
-		if (i > 0 && bytes.length > i+4 && bytes[i] == 0 && bytes[i+1] == 0 && (bytes[i+2] & 0xff) == 0xff && (bytes[i+3] & 0xff) == 0xff) {
-		    // the end
-		    hasStarted = false;
-		} else if (i > 0 && bytes[i] == 0 && bytes[i - 1] == 0) {
-		    // we have a new row
-		    cur = new DMPItem();
-		    currentRow = new DMPRow();
-		    rows.add(currentRow);
-		    currentRow.items.add(cur);
-		} else if (takeByteCount > 0) {
-		    cur.bytes.add(bytes[i]);
-		    takeByteCount--;
-		    if (takeByteCount == 0) {
-			// end
-		    }
-		} else if (bytes.length > (i+1) && ((bytes[i] & 0xff) == 0xfe) && (bytes[i+1] & 0xff) == 0xff) {
+		if (bytes.length > (i+1) && ((bytes[i] & 0xff) == 0xfe) && (bytes[i+1] & 0xff) == 0xff) {
 		    // NULL value
 		    cur = new DMPItem();
 		    currentRow.items.add(cur);
@@ -217,6 +247,21 @@ public class DMPParser {
 		    cur.bytes.add(bytes[i]);
 		    cur.bytes.add(bytes[i+1]);
 		    i++;
+		} else if (i > 0 && bytes.length > i+4 && bytes[i] == 0 && bytes[i+1] == 0 && (bytes[i+2] & 0xff) == 0xff && (bytes[i+3] & 0xff) == 0xff) {
+		    // the end
+		    hasStarted = false;
+		} else if (i > 0 && bytes[i] == 0 && bytes[i - 1] == 0) {
+		    // we have a new row
+		    currentRow = new DMPRow();
+		    rows.add(currentRow);
+//		    cur = new DMPItem();
+//		    currentRow.items.add(cur);
+		} else if (takeByteCount > 0) {
+		    cur.bytes.add(bytes[i]);
+		    takeByteCount--;
+		    if (takeByteCount == 0) {
+			// end
+		    }
 		} else if (bytes.length > (i+1) && ((bytes[i] & 0xff) > 0) && (bytes[i+1] & 0xff) == 0) {
 		    cur = new DMPItem();
 		    currentRow.items.add(cur);
@@ -226,55 +271,79 @@ public class DMPParser {
 		    // System.out.println("takeByteCount = " + takeByteCount);
 		    i++;
 		} else if (bytes[i] == 0) {
-		    cur = new DMPItem();
-		    currentRow.items.add(cur);
+//		    cur = new DMPItem();
+//		    currentRow.items.add(cur);
 		} else {
 		    cur.bytes.add(bytes[i]);
 		}
 	    }
 	}
+	int row = 0;
 	for (com.jansensystems.oracledmpparser.DMPRow r : rows) {
+	    int col = 0;
 	    for (com.jansensystems.oracledmpparser.DMPItem l : r.items) {
 		if (debugToStdout) System.out.print(String.format("%02x", l.noOfbytes) + ", " + l.bytes.stream().map(x -> String.format("%02x", x)).collect(Collectors.joining(", ")));
 		if (l.itemType == DMPItemType.NULL) {
 		    if (debugToStdout) System.out.print(" -> NULL");
-		} else if (l.bytes.size() > 1 && ((l.bytes.get(0) & 0xff) >= 0xc0 && (l.bytes.get(0) & 0xff) <= 0xcf)) {
+		// } else if (l.bytes.size() > 1 && ((l.bytes.get(0) & 0xff) >= 0xc0 && (l.bytes.get(0) & 0xff) <= 0xcf)) {
+		} else if (columnTypes[col] == DMPItemType.NUMBER && l.bytes.size() > 1 && ((l.bytes.get(0) & 0xff) == 0x80)) {
+		    if (debugToStdout) System.out.print(" -> 0");
+		    l.itemType = DMPItemType.NUMBER;
+		    l.numberValue = 0d;
+		} else if (columnTypes[col] == DMPItemType.NUMBER) {
 		    // number
+		    String v = "";
 		    l.itemType = DMPItemType.NUMBER;
 		    if (debugToStdout) System.out.print(" -> ");
-		    int intPart = (l.bytes.get(0) & 0xff) - 0xc0;
-		    var sl = l.bytes.subList(1, l.bytes.size());
-		    String v = "";
-		    if (intPart > 0) {
-			while (sl.size() < intPart) sl.add(Byte.valueOf((byte)1));  // TODO: correct?
-			var ip = sl.subList(0, intPart);
-			v = ip.stream().map(x -> x-1).map(x -> String.format("%02d", x)).collect(Collectors.joining());
+		    if ((l.bytes.get(l.bytes.size()-1) & 0xff) == 0x66) {
+			// negative numbers
+			var sl = l.bytes.subList(1, l.bytes.size()-1);
+			int intPart = -1 * (int)((l.bytes.get(0) & 0xff) - 0x3f);
+			if (intPart > 0) {
+			    while (sl.size() < intPart) sl.add(Byte.valueOf((byte)0x63));  // TODO: correct?
+			    var ip = sl.subList(0, intPart);
+			    v = "-" + ip.stream().map(x -> -1*(x - 101)).map(x -> String.format("%02d", x)).collect(Collectors.joining());
 
-			if (sl.size() > intPart) {
-			    var dp = sl.subList(intPart, sl.size());
-			    v+= "." + dp.stream().map(x -> x-1).map(x -> String.format("%02d", x)).collect(Collectors.joining());
+			    if (sl.size() > intPart) {
+				var dp = sl.subList(intPart, sl.size());
+				v+= "." + dp.stream().map(x -> -1*(x - 101)).map(x -> String.format("%02d", x)).collect(Collectors.joining());
+			    }
+
+			} else {
+			    v = "-0." + ("00".repeat(-1 * intPart)) + sl.stream().map(x -> -1*(x - 101)).map(x -> String.format("%02d", x)).collect(Collectors.joining());
 			}
-
 		    } else {
-			v = "0." + sl.stream().map(x -> x-1).map(x -> String.format("%02d", x)).collect(Collectors.joining());
+			int intPart = (l.bytes.get(0) & 0xff) - 0xc0;
+			var sl = l.bytes.subList(1, l.bytes.size());
+			if (intPart > 0) {
+			    while (sl.size() < intPart) sl.add(Byte.valueOf((byte)1));  // TODO: correct?
+			    var ip = sl.subList(0, intPart);
+			    v = ip.stream().map(x -> x-1).map(x -> String.format("%02d", x)).collect(Collectors.joining());
+
+			    if (sl.size() > intPart) {
+				var dp = sl.subList(intPart, sl.size());
+				v+= "." + dp.stream().map(x -> x-1).map(x -> String.format("%02d", x)).collect(Collectors.joining());
+			    }
+
+			} else {
+			    v = "0." + ("00".repeat(-1 * intPart)) + sl.stream().map(x -> x-1).map(x -> String.format("%02d", x)).collect(Collectors.joining());
+			}
 		    }
 		    l.stringValue = v;
 		    try {
-			l.numberValue = Double.valueOf(v);
+			if (!v.isBlank()) {
+			    l.numberValue = Double.valueOf(v);
+			}
 		    } catch (Exception ex) {
 			ex.printStackTrace();
 		    }
 		    if (debugToStdout) System.out.print(v);
-		} else if (l.bytes.size() > 1 && ((l.bytes.get(0) & 0xff) == 0x80)) {
-		    if (debugToStdout) System.out.print(" -> 0");
-		    l.itemType = DMPItemType.NUMBER;
-		    l.numberValue = 0d;
-		} else {
+		} else if (columnTypes[col] == DMPItemType.STRING) {
 		    l.itemType = DMPItemType.STRING;
 		    // string?
 		    if (l.bytes.size() > 1) {
 			if (debugToStdout) System.out.print(" -> ");
-			var sl = l.bytes.subList(1, l.bytes.size());
+			var sl = l.bytes.subList(0, l.bytes.size());
 			var b1 = new byte[sl.size()];
 			for (int i = 0;i<sl.size();i++) b1[i] = sl.get(i);
 			String v = new String(b1);
@@ -283,10 +352,21 @@ public class DMPParser {
 		    }
 		}
 		if (debugToStdout) System.out.println();
+		col++;
 	    }
+	    row++;
+	    if (debugToStdout) System.out.println();
 	}
 	if (debugToStdout) System.out.println();
 	return rows;
+    }
+    
+    public static String byteArrayToString(byte[] bytes) {
+	List<String> sb = new ArrayList<>();
+	for (byte b : bytes) {
+	    sb.add(String.format("%02x", b));
+	}
+	return sb.stream().collect(Collectors.joining(", "));
     }
 
     public void setDebugToStdout(boolean debugToStdout) {
