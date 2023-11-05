@@ -189,7 +189,7 @@ public class DMPParser {
 	boolean hasStarted = false;
 	if (debugToStdout) {
 	    String bytes_hex =  byteArrayToString(bytes);
-	    System.out.println(bytes_hex);
+	    // System.out.println(bytes_hex);
 	}
 	if (bytes.length == 0) return rows;
 	int fieldCount = (bytes[0] & 0xff);
@@ -219,6 +219,10 @@ public class DMPParser {
 	    if (columnTypes[i] != null) {
 		switch (columnTypes[i]) {
 		    case STRING -> addSkip+=4;
+		}
+	    } else {
+		if (debugToStdout) {
+		    System.out.println("Missing type for code " + fc);
 		}
 	    }
 	}
@@ -288,7 +292,7 @@ public class DMPParser {
 		if (l.itemType == DMPItemType.NULL) {
 		    if (debugToStdout) System.out.print("NULL");
 		// } else if (l.bytes.size() > 1 && ((l.bytes.get(0) & 0xff) >= 0xc0 && (l.bytes.get(0) & 0xff) <= 0xcf)) {
-		} else if (columnTypes[col] == DMPItemType.NUMBER && l.bytes.size() > 1 && ((l.bytes.get(0) & 0xff) == 0x80)) {
+		} else if (columnTypes[col] == DMPItemType.NUMBER && l.bytes.size() > 0 && ((l.bytes.get(0) & 0xff) == 0x80)) {
 		    if (debugToStdout) System.out.print(" -> 0");
 		    l.itemType = DMPItemType.NUMBER;
 		    l.numberValue = 0d;
