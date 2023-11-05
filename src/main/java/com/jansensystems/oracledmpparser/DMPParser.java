@@ -4,6 +4,7 @@ package com.jansensystems.oracledmpparser;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedList;
@@ -283,8 +284,9 @@ public class DMPParser {
 	    int col = 0;
 	    for (com.jansensystems.oracledmpparser.DMPItem l : r.items) {
 		if (debugToStdout) System.out.print(String.format("%02x", l.noOfbytes) + ", " + l.bytes.stream().map(x -> String.format("%02x", x)).collect(Collectors.joining(", ")));
+		if (debugToStdout) System.out.print(" -> ");
 		if (l.itemType == DMPItemType.NULL) {
-		    if (debugToStdout) System.out.print(" -> NULL");
+		    if (debugToStdout) System.out.print("NULL");
 		// } else if (l.bytes.size() > 1 && ((l.bytes.get(0) & 0xff) >= 0xc0 && (l.bytes.get(0) & 0xff) <= 0xcf)) {
 		} else if (columnTypes[col] == DMPItemType.NUMBER && l.bytes.size() > 1 && ((l.bytes.get(0) & 0xff) == 0x80)) {
 		    if (debugToStdout) System.out.print(" -> 0");
@@ -294,7 +296,6 @@ public class DMPParser {
 		    // number
 		    String v = "";
 		    l.itemType = DMPItemType.NUMBER;
-		    if (debugToStdout) System.out.print(" -> ");
 		    if ((l.bytes.get(l.bytes.size()-1) & 0xff) == 0x66) {
 			// negative numbers
 			var sl = l.bytes.subList(1, l.bytes.size()-1);
@@ -342,13 +343,44 @@ public class DMPParser {
 		    l.itemType = DMPItemType.STRING;
 		    // string?
 		    if (l.bytes.size() > 1) {
-			if (debugToStdout) System.out.print(" -> ");
 			var sl = l.bytes.subList(0, l.bytes.size());
 			var b1 = new byte[sl.size()];
 			for (int i = 0;i<sl.size();i++) b1[i] = sl.get(i);
 			String v = new String(b1);
 			if (debugToStdout) System.out.print(v);
 			l.stringValue = v;
+		    }
+		} else if (columnTypes[col] == DMPItemType.DATE) {
+		    l.itemType = DMPItemType.DATE;
+		    if (l.noOfbytes == 7) {
+			String v = "";
+			v = l.bytes.subList(0, 2).stream().map(x -> x - 100).map(x -> String.format("%02d", x)).collect(Collectors.joining());
+			v += "-" + l.bytes.subList(2, 4).stream().map(x -> x).map(x -> String.format("%02d", x)).collect(Collectors.joining("-"));
+			v += " " + l.bytes.subList(4, 7).stream().map(x -> x-1).map(x -> String.format("%02d", x)).collect(Collectors.joining(":"));
+			
+			l.stringValue = v;
+			if (debugToStdout) System.out.print(v);
+		    } else {
+			// should always be 7 bytes
+		    }
+		} else if (columnTypes[col] == DMPItemType.TIMESTAMP) {
+		    l.itemType = DMPItemType.TIMESTAMP;
+		    if (l.noOfbytes == 7 || l.noOfbytes == 11) {
+			String v = "";
+			v = l.bytes.subList(0, 2).stream().map(x -> x - 100).map(x -> String.format("%02d", x)).collect(Collectors.joining());
+			v += "-" + l.bytes.subList(2, 4).stream().map(x -> x).map(x -> String.format("%02d", x)).collect(Collectors.joining("-"));
+			v += " " + l.bytes.subList(4, 7).stream().map(x -> x-1).map(x -> String.format("%02d", x)).collect(Collectors.joining(":"));
+			
+			if (l.noOfbytes == 11) {
+			    ByteBuffer bb = ByteBuffer.wrap(getByteSubArray(l.bytes, 7, 4));
+			    int bv = bb.getInt();
+			    v+="," + String.format("%09d", bv);	// TODO: can be less than 9 digits configured
+			}
+			
+			l.stringValue = v;
+			if (debugToStdout) System.out.print(v);
+		    } else {
+			// should always be 7 bytes
 		    }
 		}
 		if (debugToStdout) System.out.println();
@@ -359,6 +391,14 @@ public class DMPParser {
 	}
 	if (debugToStdout) System.out.println();
 	return rows;
+    }
+    
+    public static byte[] getByteSubArray(List<Byte> bytes, int start, int count) {
+	byte[] ret = new byte[count];
+	for (int i=0;i<count;i++) {
+	    ret[i] = bytes.get(start + i);
+	}
+	return ret;
     }
     
     public static String byteArrayToString(byte[] bytes) {
