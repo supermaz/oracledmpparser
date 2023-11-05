@@ -5,8 +5,13 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.sql.Timestamp;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.temporal.ChronoField;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.Queue;
 import java.util.List;
@@ -25,6 +30,10 @@ public class DMPParser {
     private List<DMPTable> tables = new ArrayList<>();
     private boolean finished = false;
     private boolean debugToStdout = false;
+    
+    private static SimpleDateFormat dateParser = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter timestampFormatter = new DateTimeFormatterBuilder().appendPattern("yyyy-MM-dd HH:mm:ss") // .parseLenient()
+        .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true).toFormatter();
     
     public void reset() {
 	afterInsertStatement = false;
@@ -363,6 +372,11 @@ public class DMPParser {
 			v += " " + l.bytes.subList(4, 7).stream().map(x -> x-1).map(x -> String.format("%02d", x)).collect(Collectors.joining(":"));
 			
 			l.stringValue = v;
+			try {
+			    l.dateValue = dateParser.parse(v);
+			} catch (ParseException ex) {
+			    if (debugToStdout) ex.printStackTrace();
+			}
 			if (debugToStdout) System.out.print(v);
 		    } else {
 			// should always be 7 bytes
@@ -378,10 +392,11 @@ public class DMPParser {
 			if (l.noOfbytes == 11) {
 			    ByteBuffer bb = ByteBuffer.wrap(getByteSubArray(l.bytes, 7, 4));
 			    int bv = bb.getInt();
-			    v+="," + String.format("%09d", bv);	// TODO: can be less than 9 digits configured
+			    v+="." + String.format("%09d", bv);	// TODO: can be less than 9 digits configured
 			}
 			
 			l.stringValue = v;
+			l.timestampValue = Timestamp.valueOf(v);
 			if (debugToStdout) System.out.print(v);
 		    } else {
 			// should always be 7 bytes

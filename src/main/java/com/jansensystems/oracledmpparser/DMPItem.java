@@ -1,7 +1,9 @@
 
 package com.jansensystems.oracledmpparser;
 
+import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 
 /**
@@ -15,5 +17,6 @@ class DMPItem {
     public DMPItemType itemType;
     public String stringValue = null;
     public Double numberValue = null;
-
+    public Date dateValue = null;
+    public Timestamp timestampValue = null;
 }
