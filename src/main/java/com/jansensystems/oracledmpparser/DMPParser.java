@@ -42,6 +42,11 @@ public class DMPParser {
     }
     
     public Stream<DMPTable> parseFileStream(InputStream in, Function<String, Boolean> filter) throws IOException {
+	if (in == null) {
+	    throw new IllegalArgumentException("The input stream must not be NULL");
+	}
+	final Function<String, Boolean> filter1 = (filter == null ? x -> true : filter);
+	// if (filter == null) filter = x -> true;
 	reset();
 	Stream<DMPTable> iterated = Stream.iterate(null, s -> !finished, s -> {
 	    // return null;
@@ -56,7 +61,7 @@ public class DMPParser {
 			    if (lastBytesEndOfInsertData(lastBytes)) {
 				temp.write(b);
 				temp.close();
-				parseLine(temp.toByteArray(), filter);
+				parseLine(temp.toByteArray(), filter1);
 				return tables.get(0);
 				// temp = new ByteArrayOutputStream();
 			    } else {
@@ -66,7 +71,7 @@ public class DMPParser {
 			} else {
 			    // newline
 			    temp.close();
-			    parseLine(temp.toByteArray(), filter);
+			    parseLine(temp.toByteArray(), filter1);
 			    temp = new ByteArrayOutputStream();
 			}
 		    } else {
@@ -75,10 +80,12 @@ public class DMPParser {
 			if (lastBytes.size() > 4) lastBytes.poll();
 		    }
 		}
-		parseLine(temp.toByteArray(), filter);
+		parseLine(temp.toByteArray(), filter1);
 		finished = true;
 	    } catch (Exception ex) {
 		// TODO
+		throw new RuntimeException(ex);
+		// ex.printStackTrace();
 	    } finally {
 		try {
 		    temp.close();
@@ -280,5 +287,9 @@ public class DMPParser {
 	}
 	if (debugToStdout) System.out.println();
 	return rows;
+    }
+
+    public void setDebugToStdout(boolean debugToStdout) {
+	this.debugToStdout = debugToStdout;
     }
 }
