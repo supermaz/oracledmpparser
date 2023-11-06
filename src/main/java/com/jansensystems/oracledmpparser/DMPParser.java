@@ -309,12 +309,15 @@ public class DMPParser {
 		    // number
 		    String v = "";
 		    l.itemType = DMPItemType.NUMBER;
-		    if ((l.bytes.get(l.bytes.size()-1) & 0xff) == 0x66) {
+		    if ((l.bytes.get(l.bytes.size()-1) & 0xff) == 0x66 || (l.bytes.get(0) & 0xff) < 0xa0) { // TODO: seems like a lower first byte value also indicates negative values? Don't know what is the max/min value
 			// negative numbers
 			var sl = l.bytes.subList(1, l.bytes.size()-1);
+			if ((l.bytes.get(l.bytes.size()-1) & 0xff) != 0x66) {
+			    sl = l.bytes.subList(1, l.bytes.size());
+			}
 			int intPart = -1 * (int)((l.bytes.get(0) & 0xff) - 0x3f);
 			if (intPart > 0) {
-			    while (sl.size() < intPart) sl.add(Byte.valueOf((byte)0x63));  // TODO: correct?
+			    while (sl.size() < intPart) sl.add(Byte.valueOf((byte)0x65));  // TODO: correct?
 			    var ip = sl.subList(0, intPart);
 			    v = "-" + ip.stream().map(x -> -1*(x - 101)).map(x -> String.format("%02d", x)).collect(Collectors.joining());
 
