@@ -105,7 +105,7 @@ public class DMPParser {
 	    return null;
 	});
 	
-	return iterated.skip(1);
+	return iterated.skip(1);    // skip the initial NULL value
     }
     
     public List<DMPTable> parseFile(InputStream in, List<String> tableNames) throws IOException {
@@ -156,6 +156,7 @@ public class DMPParser {
     }
     
     private boolean lastBytesEndOfInsertData(Queue<Integer> lastBytes) {
+	// the last bytes must be 0 - 0 - ff - ff
 	if (lastBytes.size() < 4) return false;
 	Integer[] bytes = (Integer[]) lastBytes.toArray(new Integer[4]);
 	int i = 0;
@@ -203,6 +204,8 @@ public class DMPParser {
 	if (bytes.length == 0) return rows;
 	int fieldCount = (bytes[0] & 0xff);
 	int skipBytes = fieldCount*4;
+	// try to find the start of data, should be after the last position with 4 null bytes in one row
+	// there will truly be a better approach...
 	for (int i=bytes.length-1;i>0;i--) {
 	    if (i > 4 && bytes[i] == 0 && bytes[i-1] == 0 && bytes[i-2] == 0 && bytes[i-3] == 0) {
 		skipBytes = i-4;
@@ -217,6 +220,7 @@ public class DMPParser {
 	int addSkip = 0;
 	for (int i=0;i<fieldCount;i++) {
 	    int fc = (bytes[i*4+2 + addSkip] & 0xff);
+	    // TODO: add more data types
 	    columnTypes[i] = switch (fc) {
 		case 1 -> DMPItemType.STRING;
 		case 2 -> DMPItemType.NUMBER;
@@ -227,7 +231,7 @@ public class DMPParser {
 	    };
 	    if (columnTypes[i] != null) {
 		switch (columnTypes[i]) {
-		    case STRING -> addSkip+=4;
+		    case STRING -> addSkip+=4;	// string has additional settings, guess the length which are ignoring currently
 		}
 	    } else {
 		if (debugToStdout) {
@@ -245,7 +249,7 @@ public class DMPParser {
 	    }
 	    if (nullCount == 4) { 
 		if (i > 0 && bytes.length > i+4 && bytes[i] == 0 && bytes[i+1] == 0 && (bytes[i+2] & 0xff) == 0xff && (bytes[i+3] & 0xff) == 0xff && (bytes[i+4] & 0xff) == 0x0a) {
-		    // zero rows
+		    // zero rows, so no data at all
 		    break;
 		} else {
 		    hasStarted = true;
@@ -253,7 +257,7 @@ public class DMPParser {
 	    }
 	    else if (hasStarted) {
 		if (bytes.length > (i+1) && ((bytes[i] & 0xff) == 0xfe) && (bytes[i+1] & 0xff) == 0xff) {
-		    // NULL value
+		    // NULL value, seems to be coded as fe - ff
 		    cur = new DMPItem();
 		    currentRow.items.add(cur);
 		    cur.itemType = DMPItemType.NULL;
@@ -265,7 +269,7 @@ public class DMPParser {
 		    // the end
 		    hasStarted = false;
 		} else if (i > 0 && bytes[i] == 0 && bytes[i - 1] == 0) {
-		    // we have a new row
+		    // we have a new row, seems to be marked with double 0 bytes
 		    currentRow = new DMPRow();
 		    rows.add(currentRow);
 //		    cur = new DMPItem();
@@ -277,6 +281,8 @@ public class DMPParser {
 			// end
 		    }
 		} else if (bytes.length > (i+1) && ((bytes[i] & 0xff) > 0) && (bytes[i+1] & 0xff) == 0) {
+		    // beginning of new column data, coded as number of bytes as first byte and 0 byte
+		    // TODO: true for large data like BLOB? maybe more bytes for length?
 		    cur = new DMPItem();
 		    currentRow.items.add(cur);
 
@@ -302,6 +308,7 @@ public class DMPParser {
 		    if (debugToStdout) System.out.print("NULL");
 		// } else if (l.bytes.size() > 1 && ((l.bytes.get(0) & 0xff) >= 0xc0 && (l.bytes.get(0) & 0xff) <= 0xcf)) {
 		} else if (columnTypes[col] == DMPItemType.NUMBER && l.bytes.size() > 0 && ((l.bytes.get(0) & 0xff) == 0x80)) {
+		    // a value of 0 seems to be coded as 0x80
 		    if (debugToStdout) System.out.print(" -> 0");
 		    l.itemType = DMPItemType.NUMBER;
 		    l.numberValue = 0d;
@@ -309,18 +316,27 @@ public class DMPParser {
 		    // number
 		    String v = "";
 		    l.itemType = DMPItemType.NUMBER;
+		    // negative numbers seems to have a 0x66 at the end
+		    // or a lower start than positive numbers
 		    if ((l.bytes.get(l.bytes.size()-1) & 0xff) == 0x66 || (l.bytes.get(0) & 0xff) < 0xa0) { // TODO: seems like a lower first byte value also indicates negative values? Don't know what is the max/min value
 			// negative numbers
+			// remove first byte and last byte when it is 0x66
 			var sl = l.bytes.subList(1, l.bytes.size()-1);
 			if ((l.bytes.get(l.bytes.size()-1) & 0xff) != 0x66) {
 			    sl = l.bytes.subList(1, l.bytes.size());
 			}
+			// intParts are number of bytes before decimal point, can also be negative
+			// 0x3f seems to be 0 bytes
 			int intPart = -1 * (int)((l.bytes.get(0) & 0xff) - 0x3f);
 			if (intPart > 0) {
+			    // add dummy values to address decimal point shifting
 			    while (sl.size() < intPart) sl.add(Byte.valueOf((byte)0x65));  // TODO: correct?
+			    // first, the integer part
 			    var ip = sl.subList(0, intPart);
+			    // digits are coded as -1 * value + 101, so reverse it
 			    v = "-" + ip.stream().map(x -> -1*(x - 101)).map(x -> String.format("%02d", x)).collect(Collectors.joining());
 
+			    // then decimal part
 			    if (sl.size() > intPart) {
 				var dp = sl.subList(intPart, sl.size());
 				v+= "." + dp.stream().map(x -> -1*(x - 101)).map(x -> String.format("%02d", x)).collect(Collectors.joining());
@@ -330,13 +346,19 @@ public class DMPParser {
 			    v = "-0." + ("00".repeat(-1 * intPart)) + sl.stream().map(x -> -1*(x - 101)).map(x -> String.format("%02d", x)).collect(Collectors.joining());
 			}
 		    } else {
+			// intParts are number of bytes before decimal point, can also be negative
+			// 0xc0 seems to be 0 bytes
 			int intPart = (l.bytes.get(0) & 0xff) - 0xc0;
+			// first byte is the number of bytes before decimal point
 			var sl = l.bytes.subList(1, l.bytes.size());
 			if (intPart > 0) {
+			    // add dummy values to address decimal point shifting
 			    while (sl.size() < intPart) sl.add(Byte.valueOf((byte)1));  // TODO: correct?
+			    // first, the integer part
 			    var ip = sl.subList(0, intPart);
 			    v = ip.stream().map(x -> x-1).map(x -> String.format("%02d", x)).collect(Collectors.joining());
 
+			    // then decimal part
 			    if (sl.size() > intPart) {
 				var dp = sl.subList(intPart, sl.size());
 				v+= "." + dp.stream().map(x -> x-1).map(x -> String.format("%02d", x)).collect(Collectors.joining());
@@ -359,6 +381,7 @@ public class DMPParser {
 		    l.itemType = DMPItemType.STRING;
 		    // string?
 		    if (l.bytes.size() > 1) {
+			// convert byte array to string
 			var sl = l.bytes.subList(0, l.bytes.size());
 			var b1 = new byte[sl.size()];
 			for (int i = 0;i<sl.size();i++) b1[i] = sl.get(i);
@@ -368,10 +391,13 @@ public class DMPParser {
 		    }
 		} else if (columnTypes[col] == DMPItemType.DATE) {
 		    l.itemType = DMPItemType.DATE;
-		    if (l.noOfbytes == 7) {
+		    if (l.noOfbytes == 7) { // should always be 7 bytes
 			String v = "";
+			// first 2 bytes are year coded as 2-digit byte + 100 -> 120 and 123 => 2023
 			v = l.bytes.subList(0, 2).stream().map(x -> x - 100).map(x -> String.format("%02d", x)).collect(Collectors.joining());
+			// next two bytes are directly coded month and day
 			v += "-" + l.bytes.subList(2, 4).stream().map(x -> x).map(x -> String.format("%02d", x)).collect(Collectors.joining("-"));
+			// last, hours, minutes and secods are again coded as number + 1
 			v += " " + l.bytes.subList(4, 7).stream().map(x -> x-1).map(x -> String.format("%02d", x)).collect(Collectors.joining(":"));
 			
 			l.stringValue = v;
@@ -388,11 +414,15 @@ public class DMPParser {
 		    l.itemType = DMPItemType.TIMESTAMP;
 		    if (l.noOfbytes == 7 || l.noOfbytes == 11) {
 			String v = "";
+			// first 2 bytes are year coded as 2-digit byte + 100 -> 120 and 123 => 2023
 			v = l.bytes.subList(0, 2).stream().map(x -> x - 100).map(x -> String.format("%02d", x)).collect(Collectors.joining());
+			// next two bytes are directly coded month and day
 			v += "-" + l.bytes.subList(2, 4).stream().map(x -> x).map(x -> String.format("%02d", x)).collect(Collectors.joining("-"));
+			// last, hours, minutes and secods are again coded as number + 1
 			v += " " + l.bytes.subList(4, 7).stream().map(x -> x-1).map(x -> String.format("%02d", x)).collect(Collectors.joining(":"));
 			
 			if (l.noOfbytes == 11) {
+			    // last bytes are directly integer coded fraction of a second
 			    ByteBuffer bb = ByteBuffer.wrap(getByteSubArray(l.bytes, 7, 4));
 			    int bv = bb.getInt();
 			    v+="." + String.format("%09d", bv);	// TODO: can be less than 9 digits configured
