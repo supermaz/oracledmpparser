@@ -1,6 +1,14 @@
 # oracledmpparser
 Java library to parse oracle database dmp files created with exp command
 
+## Maven config
+
+    <dependency>
+	<groupId>com.jansen-systems.oss</groupId>
+	<artifactId>oracledmpparser</artifactId>
+	<version>0.0.4</version>
+    </dependency>
+
 ## Example usage:
 
 
