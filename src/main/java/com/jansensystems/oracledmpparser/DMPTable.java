@@ -10,6 +10,7 @@ public class DMPTable {
     public String tableName = null;
     public String createTableSQL = null;
     public List<DMPRow> dataRows = null;
+    public List<String> fieldNames = null;
 
     @Override
     public String toString() {

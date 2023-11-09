@@ -12,10 +12,13 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.temporal.ChronoField;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.Queue;
 import java.util.List;
 import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -31,7 +34,9 @@ public class DMPParser {
     private boolean finished = false;
     private boolean debugToStdout = false;
     
-    private static SimpleDateFormat dateParser = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+    // example: INSERT INTO "TABLE1" ("KEYCOL", "NUMCOL1", "FLOATCOL1", "STRCOL1", "DATECOL1", "BLOBCOL1", "TIMESTAMP1") VALUES (:1, :2, :3, :4, :5, :6, :7)
+    private static final Pattern patInsertStatement = Pattern.compile("INSERT INTO \"([^\"]+)\" \\(([^)]+)\\) VALUES");
+    private static final SimpleDateFormat dateParser = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter timestampFormatter = new DateTimeFormatterBuilder().appendPattern("yyyy-MM-dd HH:mm:ss") // .parseLenient()
         .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true).toFormatter();
     
@@ -184,8 +189,15 @@ public class DMPParser {
 		currentTable = null;
 	    }
 	} else if (testString.startsWith("INSERT INTO ")) {
-	    if (currentTable != null)
+	    if (currentTable != null) {
 		afterInsertStatement = true;
+		Matcher m = patInsertStatement.matcher(testString);
+		if (m.find()) {
+		    String fieldsStr = m.group(2);
+		    String[] fieldss = fieldsStr.split(",");
+		    currentTableObj.fieldNames = Arrays.asList(fieldss).stream().map(x -> x.trim().replaceAll("\"", "")).toList();
+		}
+	    }
 	}
     }
     
