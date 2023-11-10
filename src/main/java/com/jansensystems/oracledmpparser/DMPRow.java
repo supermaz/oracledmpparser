@@ -8,7 +8,7 @@ import java.util.List;
  *
  * @author Matthias Jansen / Jansen-Systems
  */
-class DMPRow {
+public class DMPRow {
 
     public List<DMPItem> items = new ArrayList<>();
 

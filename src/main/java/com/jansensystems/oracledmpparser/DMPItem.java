@@ -10,7 +10,7 @@ import java.util.List;
  *
  * @author Matthias Jansen / Jansen-Systems
  */
-class DMPItem {
+public class DMPItem {
 
     public int noOfbytes = 0;
     public List<Byte> bytes = new ArrayList<>();
