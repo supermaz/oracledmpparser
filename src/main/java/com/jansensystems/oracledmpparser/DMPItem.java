@@ -5,6 +5,7 @@ import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  *
@@ -19,4 +20,15 @@ public class DMPItem {
     public Double numberValue = null;
     public Date dateValue = null;
     public Timestamp timestampValue = null;
+    
+    public String toString() {
+	return switch (itemType) {
+	    case BLOB -> bytes.stream().map(x -> String.format("%02x", x)).collect(Collectors.joining(", "));
+	    case DATE -> dateValue != null ? dateValue.toString() : null;
+	    case NULL -> null;
+	    case NUMBER -> numberValue.toString();
+	    case STRING -> stringValue;
+	    case TIMESTAMP -> timestampValue.toString();
+	};
+    }
 }
