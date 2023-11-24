@@ -34,7 +34,9 @@ public class DMPParser {
     private boolean finished = false;
     private boolean debugToStdout = false;
     private boolean debugHexDumpToStdout = false;
-    private DMPExportVersion exportVersion = new DMPExportVersion();
+    private final DMPExportVersion exportVersion = new DMPExportVersion();
+    private String exportUser = null;
+    private String exportTablespace = null;
     
     // example: INSERT INTO "TABLE1" ("KEYCOL", "NUMCOL1", "FLOATCOL1", "STRCOL1", "DATECOL1", "BLOBCOL1", "TIMESTAMP1") VALUES (:1, :2, :3, :4, :5, :6, :7)
     private static final Pattern patInsertStatement = Pattern.compile("INSERT INTO \"([^\"]+)\" \\(([^)]+)\\) VALUES");
@@ -218,6 +220,10 @@ public class DMPParser {
 		exportVersion.setMinor(Integer.parseInt(m.group(2)));
 		exportVersion.setPatch(Integer.parseInt(m.group(3)));
 	    }
+	} else if (testString.startsWith("U") && exportUser == null) {
+	    exportUser = testString.substring(1);
+	} else if (testString.startsWith("R") && exportTablespace == null) {
+	    exportTablespace = testString.substring(1);
 	}
     }
     
@@ -524,5 +530,25 @@ public class DMPParser {
 
     public void setDebugHexDumpToStdout(boolean debugHexDumpToStdout) {
 	this.debugHexDumpToStdout = debugHexDumpToStdout;
+    }
+
+    public DMPExportVersion getExportVersion() {
+	return exportVersion;
+    }
+
+    public String getExportUser() {
+	return exportUser;
+    }
+
+    public void setExportUser(String exportUser) {
+	this.exportUser = exportUser;
+    }
+
+    public String getExportTablespace() {
+	return exportTablespace;
+    }
+
+    public void setExportTablespace(String exportTablespace) {
+	this.exportTablespace = exportTablespace;
     }
 }
