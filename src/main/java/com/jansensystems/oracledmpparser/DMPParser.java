@@ -233,6 +233,7 @@ public class DMPParser {
 	DMPItem cur = null;
 
 	int takeByteCount = 0;
+	boolean includeNextBatch = false;
 	int nullCount = 0;
 	boolean hasStarted = false;
 	if (debugHexDumpToStdout) {
@@ -337,18 +338,35 @@ public class DMPParser {
 		} else if (bytes.length > (i+1) && ((bytes[i] & 0xff) > 0) && (bytes[i+1] & 0xff) == 0) {
 		    // beginning of new column data, coded as number of bytes as first byte and 0 byte
 		    // TODO: true for large data like BLOB? maybe more bytes for length?
+		    takeByteCount = (bytes[i] & 0xff);
+		    if (includeNextBatch) {
+			cur.noOfbytes += takeByteCount;
+			includeNextBatch = false;
+		    } else {
+			cur = new DMPItem();
+			currentRow.items.add(cur);
+			cur.noOfbytes = takeByteCount;
+			// System.out.println("takeByteCount = " + takeByteCount);
+		    }
+		    i++;
+		} else if (takeByteCount == 0 && bytes.length > (i+1) && ((bytes[i] & 0xff) > 0) && (bytes[i+1] & 0xff) == 0x80) {
+		    // beginning of new column data, coded as number of bytes as first byte and 0 byte
+		    // special case here, include bytes of next part???
+		    // TODO: true for large data like BLOB? maybe more bytes for length?
 		    cur = new DMPItem();
 		    currentRow.items.add(cur);
 
 		    takeByteCount = (bytes[i] & 0xff);
 		    cur.noOfbytes = takeByteCount;
+		    
+		    includeNextBatch = true;
 		    // System.out.println("takeByteCount = " + takeByteCount);
 		    i++;
 		} else if (bytes[i] == 0) {
 //		    cur = new DMPItem();
 //		    currentRow.items.add(cur);
 		} else {
-		    if (cur != null) {
+		    if (cur != null && cur.bytes.size() < cur.noOfbytes) {
 			cur.bytes.add(bytes[i]);
 		    } else {
 			// TODO: when do we reach here?
