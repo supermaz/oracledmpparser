@@ -33,9 +33,14 @@ public class DMPParser {
     private List<DMPTable> tables = new ArrayList<>();
     private boolean finished = false;
     private boolean debugToStdout = false;
+    private boolean debugHexDumpToStdout = false;
+    private DMPExportVersion exportVersion = new DMPExportVersion();
     
     // example: INSERT INTO "TABLE1" ("KEYCOL", "NUMCOL1", "FLOATCOL1", "STRCOL1", "DATECOL1", "BLOBCOL1", "TIMESTAMP1") VALUES (:1, :2, :3, :4, :5, :6, :7)
     private static final Pattern patInsertStatement = Pattern.compile("INSERT INTO \"([^\"]+)\" \\(([^)]+)\\) VALUES");
+    // EXPORT:V10.02.01
+    // EXPORT:V07.03.04
+    private static final Pattern patExportVersion = Pattern.compile("EXPORT:V(\\d\\d)\\.(\\d\\d)\\.(\\d\\d)");
     private static final SimpleDateFormat dateParser = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter timestampFormatter = new DateTimeFormatterBuilder().appendPattern("yyyy-MM-dd HH:mm:ss") // .parseLenient()
         .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true).toFormatter();
@@ -166,7 +171,14 @@ public class DMPParser {
 	Integer[] bytes = (Integer[]) lastBytes.toArray(new Integer[4]);
 	int i = 0;
 	// System.out.println("LastBytes: " + lastBytes.stream().map(x -> String.format("%02x", x)).collect(Collectors.joining(", ")));
-	return bytes[i] == 0 && bytes[i+1] == 0 && (bytes[i+2] & 0xff) == 0xff && (bytes[i+3] & 0xff) == 0xff;
+	if (exportVersion.getMajor() > 7) {
+	    // new versions, but starting when?
+	    return bytes[i] == 0 && bytes[i+1] == 0 && (bytes[i+2] & 0xff) == 0xff && (bytes[i+3] & 0xff) == 0xff;
+	} else {
+	    // older versions at least v7 seems to indicate with 0xff 0xff
+	    // return bytes[i] == 0 && bytes[i+1] == 0x80 && (bytes[i+2] & 0xff) == 0xff && (bytes[i+3] & 0xff) == 0xff;
+	    return (bytes[i+2] & 0xff) == 0xff && (bytes[i+3] & 0xff) == 0xff;
+	}
     }
     
     private void parseLine(byte[] bytes, Function<String, Boolean> filter) {
@@ -177,6 +189,7 @@ public class DMPParser {
 	}
 	afterInsertStatement = false;
 	String testString = new String(bytes);
+	
 	if (testString.startsWith("TABLE ")) {
 	    currentTable = testString.substring(7, testString.length()-1);
 	} else if (testString.startsWith("CREATE TABLE ")) {
@@ -198,6 +211,13 @@ public class DMPParser {
 		    currentTableObj.fieldNames = Arrays.asList(fieldss).stream().map(x -> x.trim().replaceAll("\"", "")).toList();
 		}
 	    }
+	} else if (testString.contains("EXPORT:V")){
+	    Matcher m = patExportVersion.matcher(testString);
+	    if (m.find()) {
+		exportVersion.setMajor(Integer.parseInt(m.group(1)));
+		exportVersion.setMinor(Integer.parseInt(m.group(2)));
+		exportVersion.setPatch(Integer.parseInt(m.group(3)));
+	    }
 	}
     }
     
@@ -209,9 +229,9 @@ public class DMPParser {
 	int takeByteCount = 0;
 	int nullCount = 0;
 	boolean hasStarted = false;
-	if (debugToStdout) {
+	if (debugHexDumpToStdout) {
 	    String bytes_hex =  byteArrayToString(bytes);
-	    // System.out.println(bytes_hex);
+	    System.out.println(bytes_hex);
 	}
 	if (bytes.length == 0) return rows;
 	int fieldCount = (bytes[0] & 0xff);
@@ -242,14 +262,25 @@ public class DMPParser {
 		default -> null;
 	    };
 	    if (columnTypes[i] != null) {
-		switch (columnTypes[i]) {
-		    case STRING -> addSkip+=4;	// string has additional settings, guess the length which are ignoring currently
+		if (exportVersion.getMajor() > 7) {
+		    // at least in version 10 we need to add 4, in version 7 not; TODO: when was this introduced?
+		    switch (columnTypes[i]) {
+			case STRING -> addSkip+=4;	// string has additional settings, guess the length which are ignoring currently
+		    }
 		}
 	    } else {
 		if (debugToStdout) {
 		    System.out.println("Missing type for code " + fc);
 		}
 	    }
+	}
+	
+	if (exportVersion.getMajor() < 8) {
+	    // at least in version 7 we start directly after the column definition
+	    hasStarted = true;
+	    currentRow = new DMPRow();
+	    rows.add(currentRow);
+	    skipBytes++;
 	}
 	
 	// skip field defs
@@ -291,6 +322,11 @@ public class DMPParser {
 		    takeByteCount--;
 		    if (takeByteCount == 0) {
 			// end
+			if (exportVersion.getMajor() < 8 && currentRow.items.size() == fieldCount) {
+			    // at least in version 7 we start directly with new row, no double 0 as spacer
+			    currentRow = new DMPRow();
+			    rows.add(currentRow);
+			}
 		    }
 		} else if (bytes.length > (i+1) && ((bytes[i] & 0xff) > 0) && (bytes[i+1] & 0xff) == 0) {
 		    // beginning of new column data, coded as number of bytes as first byte and 0 byte
@@ -306,14 +342,23 @@ public class DMPParser {
 //		    cur = new DMPItem();
 //		    currentRow.items.add(cur);
 		} else {
-		    cur.bytes.add(bytes[i]);
+		    if (cur != null) {
+			cur.bytes.add(bytes[i]);
+		    } else {
+			// TODO: when do we reach here?
+		    }
 		}
 	    }
 	}
+	// filter empty rows, could be because of old format
+	rows = rows.stream().filter(x -> !x.items.isEmpty()).toList();
 	int row = 0;
 	for (com.jansensystems.oracledmpparser.DMPRow r : rows) {
 	    int col = 0;
 	    for (com.jansensystems.oracledmpparser.DMPItem l : r.items) {
+		// fix possible additonal bytes at the end, TODO: why?
+		l.bytes = l.bytes.subList(0, Math.min(l.bytes.size(), l.noOfbytes));
+		
 		if (debugToStdout) System.out.print(String.format("%02x", l.noOfbytes) + ", " + l.bytes.stream().map(x -> String.format("%02x", x)).collect(Collectors.joining(", ")));
 		if (debugToStdout) System.out.print(" -> ");
 		if (l.itemType == DMPItemType.NULL) {
@@ -321,7 +366,7 @@ public class DMPParser {
 		// } else if (l.bytes.size() > 1 && ((l.bytes.get(0) & 0xff) >= 0xc0 && (l.bytes.get(0) & 0xff) <= 0xcf)) {
 		} else if (columnTypes[col] == DMPItemType.NUMBER && l.bytes.size() > 0 && ((l.bytes.get(0) & 0xff) == 0x80)) {
 		    // a value of 0 seems to be coded as 0x80
-		    if (debugToStdout) System.out.print(" -> 0");
+		    if (debugToStdout) System.out.print("0");
 		    l.itemType = DMPItemType.NUMBER;
 		    l.numberValue = 0d;
 		} else if (columnTypes[col] == DMPItemType.NUMBER) {
@@ -330,7 +375,7 @@ public class DMPParser {
 		    l.itemType = DMPItemType.NUMBER;
 		    // negative numbers seems to have a 0x66 at the end
 		    // or a lower start than positive numbers
-		    if ((l.bytes.get(l.bytes.size()-1) & 0xff) == 0x66 || (l.bytes.get(0) & 0xff) < 0xa0) { // TODO: seems like a lower first byte value also indicates negative values? Don't know what is the max/min value
+		    if (l.bytes.size() > 1 && ((l.bytes.get(l.bytes.size()-1) & 0xff) == 0x66 || (l.bytes.get(0) & 0xff) < 0xa0)) { // TODO: seems like a lower first byte value also indicates negative values? Don't know what is the max/min value
 			// negative numbers
 			// remove first byte and last byte when it is 0x66
 			var sl = l.bytes.subList(1, l.bytes.size()-1);
@@ -394,7 +439,7 @@ public class DMPParser {
 		    // string?
 		    if (l.bytes.size() > 1) {
 			// convert byte array to string
-			var sl = l.bytes.subList(0, l.bytes.size());
+			var sl = l.bytes.subList(0, Math.min(l.bytes.size(), l.noOfbytes));
 			var b1 = new byte[sl.size()];
 			for (int i = 0;i<sl.size();i++) b1[i] = sl.get(i);
 			String v = new String(b1);
@@ -475,5 +520,9 @@ public class DMPParser {
 
     public void setDebugToStdout(boolean debugToStdout) {
 	this.debugToStdout = debugToStdout;
+    }
+
+    public void setDebugHexDumpToStdout(boolean debugHexDumpToStdout) {
+	this.debugHexDumpToStdout = debugHexDumpToStdout;
     }
 }
