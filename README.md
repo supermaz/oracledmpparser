@@ -6,7 +6,7 @@ Java library to parse oracle database dmp files created with exp command
     <dependency>
 	<groupId>com.jansen-systems.oss</groupId>
 	<artifactId>oracledmpparser</artifactId>
-	<version>0.0.5</version>
+	<version>0.0.7</version>
     </dependency>
 
 ## Example usage:
