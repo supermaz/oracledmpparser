@@ -461,7 +461,7 @@ public class DMPParser {
 		} else if (columnTypes[col] == DMPItemType.STRING) {
 		    l.itemType = DMPItemType.STRING;
 		    // string?
-		    if (l.bytes.size() > 1) {
+		    if (l.bytes.size() > 0) {
 			// convert byte array to string
 			var sl = l.bytes.subList(0, Math.min(l.bytes.size(), l.noOfbytes));
 			var b1 = new byte[sl.size()];
